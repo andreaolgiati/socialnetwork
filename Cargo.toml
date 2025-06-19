@@ -1,0 +1,25 @@
+[package]
+name = "socialnetwork"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+# Clippy configuration
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+
+# Clippy lints configuration
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+cargo = "warn"
+complexity = "warn"
+correctness = "warn"
+perf = "warn"
+style = "warn"
+suspicious = "warn"
