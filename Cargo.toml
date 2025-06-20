@@ -1,9 +1,35 @@
 [package]
 name = "socialnetwork"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+tonic = "0.10"
+prost = "0.12"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8"
+clap = { version = "4.0", features = ["derive"] }
+
+[build-dependencies]
+tonic-build = "0.10"
+
+[[bin]]
+name = "socialnetwork"
+path = "src/main.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/bin/client.rs"
+
+[lib]
+name = "socialnetwork"
+path = "src/lib.rs"
 
 # Clippy configuration
 [profile.dev]
