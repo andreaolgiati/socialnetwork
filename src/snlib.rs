@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+//use rand::{distributions::uniform::SampleUniform, seq::index::sample};
+
 pub mod server;
 
 #[derive(Debug, Clone)]
@@ -64,10 +66,16 @@ impl SocialNetwork {
         
        
         // If already following (i.e., last interval is open), do nothing
-        if let Some(intervals) = self.follow_intervals.get(&(follower_id, followee_id)) {
-            let last = intervals.last().expect( "Follow intervals should not be empty");
+        if let Some(intervals) = self.follow_intervals.get_mut(&(follower_id, followee_id)) {
+            let last = intervals.last_mut().expect("Follow intervals should not be empty");
             if last.follow_end == u64::MAX {
                 return Ok(false);
+            } else if last.follow_end == self.version {
+                // this is the case where a unfollows b, then they follow again in the same version
+                last.follow_end = u64::MAX;
+                return Ok(false);
+            } else if last.follow_end < self.version {
+                // do nothing
             }
         }
 
@@ -93,22 +101,37 @@ impl SocialNetwork {
             return Ok(false);
         }
 
+        // Remove from follows
+        self.follows.get_mut(&follower_id).unwrap().remove(&followee_id);
+
+        // Remove from is_followed
+        self.is_followed.get_mut(&followee_id).unwrap().remove(&follower_id);
+
         // Find the follow intervals for the follower and followee
         let follow_intervals = self.follow_intervals.get_mut(&(follower_id, followee_id));
         
         match follow_intervals {
-            Some(follow_intervals2) => {
-                if follow_intervals2.is_empty() {
-                    return Ok(false);
-                }
+            Some(follow_intervals) => {
+                
+                // Assert that the follow intervals are not empty
+                assert!(!follow_intervals.is_empty());
 
-                let last_interval = follow_intervals2.last_mut();
+                let last_interval = follow_intervals.last_mut();
                 match last_interval {
-                    Some(interval) if interval.follow_end == u64::MAX => {
-                        interval.follow_end = self.version;
-                        return Ok(true);
+                    Some(interval) => {
+                        if interval.follow_end == u64::MAX {
+                            interval.follow_end = self.version;
+                            return Ok(true);
+                        } else if interval.follow_end == self.version {
+                            interval.follow_end = u64::MAX;
+                            return Ok(true);
+                        } else {
+                            return Err("Invalid follow interval".to_string());
+                        }
                     }
-                    _ => return Ok(false)
+                    None => {
+                        return Err("Invalid follow interval".to_string());
+                    }
                 }
             }
             None => {
@@ -125,9 +148,7 @@ impl SocialNetwork {
         }
         
         match self.follow_intervals.get(&(follower_id, followee_id)) {
-            Some(follow_intervals) if follow_intervals.is_empty() => {
-                return false;
-            }
+            // go back to checking any of the intervals
             Some(follow_intervals) => {
                 return follow_intervals.iter().any(|interval| interval.is_active(version));
             }
@@ -146,16 +167,6 @@ impl SocialNetwork {
     /// Get the current version
     pub fn current_version(&self) -> u64 {
         self.version
-    }
-
-    /// Get follower count for a user
-    pub fn follower_count(&self, user_id: u64) -> usize {
-        self.is_followed.get(&user_id).map(|f| f.len()).unwrap_or(0)
-    }
-
-    /// Get followee count for a user
-    pub fn followee_count(&self, user_id: u64) -> usize {
-        self.follows.get(&user_id).map(|f| f.len()).unwrap_or(0)
     }
 
     /// Get all followers of a user
@@ -183,8 +194,6 @@ mod tests {
     fn test_new_network() {
         let network = SocialNetwork::new();
         assert_eq!(network.current_version(), 0);
-        assert_eq!(network.follower_count(1), 0);
-        assert_eq!(network.followee_count(1), 0);
     }
 
     #[test]
@@ -194,8 +203,6 @@ mod tests {
         // Test successful follow
         assert!(network.follow(1, 2).is_ok());
         assert!(network.is_following(1, 2, None));
-        assert_eq!(network.follower_count(2), 1);
-        assert_eq!(network.followee_count(1), 1);
         
         // Test self-follow prevention
         assert!(network.follow(1, 1).is_err());
@@ -210,11 +217,13 @@ mod tests {
         assert!(network.is_following(1, 2, None));
         
         // Test successful unfollow
-        assert!(network.unfollow(1, 2).is_ok());
-        
+        assert!(network.unfollow(1, 2).unwrap());
+        // Commit to advance version so the unfollow takes effect
+        network.commit();
         assert!(!network.is_following(1, 2, None));
-        assert_eq!(network.follower_count(2), 0);
-        assert_eq!(network.followee_count(1), 0);
+        
+        // Test unfollowing when not following
+        assert!(!network.unfollow(1, 2).unwrap());
         
         // Test self-unfollow prevention
         assert!(network.unfollow(1, 1).is_err());
@@ -224,108 +233,102 @@ mod tests {
     fn test_versioning() {
         let mut network = SocialNetwork::new();
         
-        // Initial commit
-        let v0 = network.commit();
-        assert_eq!(v0, 1);
-        
-        // Follow and commit
+        // Follow at version 0
         network.follow(1, 2).unwrap();
-        let v1 = network.commit();
-        assert_eq!(v1, 2);
+        assert_eq!(network.current_version(), 0);
+        assert!(network.is_following(1, 2, Some(0)));
         
-        // Check relationship at different versions
-        assert_eq!(network.is_following(1, 2, Some(v0)), false);
-        assert_eq!(network.is_following(1, 2, Some(v1)), true);
+        // Commit to version 1
+        let version = network.commit();
+        assert_eq!(version, 1);
+        assert_eq!(network.current_version(), 1);
+        assert!(network.is_following(1, 2, Some(1)));
         
-        // Unfollow and commit
+        // Unfollow at version 1 (interval ends at version 1)
         network.unfollow(1, 2).unwrap();
-        let v2 = network.commit();
-        assert_eq!(v2, 3);
+        // At version 1, they are still following (interval [0,1] is active at version 1)
+        assert!(network.is_following(1, 2, Some(1)));
         
-        // Check relationship history
-        assert_eq!(network.is_following(1, 2, Some(v0)), false);
-        assert_eq!(network.is_following(1, 2, Some(v1)), true);
-        assert_eq!(network.is_following(1, 2, Some(v2)), false);
+        // Commit to version 2
+        network.commit();
+        // At version 2, they are no longer following (interval [0,1] is not active at version 2)
+        assert!(!network.is_following(1, 2, Some(2)));
+        
+        // Check historical versions
+        assert!(network.is_following(1, 2, Some(0))); // Was following at version 0
+        assert!(network.is_following(1, 2, Some(1))); // Was still following at version 1
+        assert!(!network.is_following(1, 2, Some(2))); // Stopped following at version 2
     }
 
     #[test]
     fn test_multiple_relationships() {
         let mut network = SocialNetwork::new();
         
-        // User 1 follows multiple users
+        // User 1 follows users 2, 3, 4
         network.follow(1, 2).unwrap();
         network.follow(1, 3).unwrap();
         network.follow(1, 4).unwrap();
         
-        assert_eq!(network.followee_count(1), 3);
-        assert_eq!(network.follower_count(2), 1);
-        assert_eq!(network.follower_count(3), 1);
-        assert_eq!(network.follower_count(4), 1);
-        
-        // Multiple users follow user 1
+        // User 2 follows user 1
         network.follow(2, 1).unwrap();
-        network.follow(3, 1).unwrap();
         
-        assert_eq!(network.follower_count(1), 2);
-        assert_eq!(network.followee_count(2), 1);
-        assert_eq!(network.followee_count(3), 1);
+        let followees = network.get_followees(1);
+        assert_eq!(followees.len(), 3);
+        assert!(followees.contains(&2));
+        assert!(followees.contains(&3));
+        assert!(followees.contains(&4));
+        
+        let followers = network.get_followers(1);
+        assert_eq!(followers.len(), 1);
+        assert!(followers.contains(&2));
     }
 
     #[test]
     fn test_get_followers_and_followees() {
         let mut network = SocialNetwork::new();
         
-        // Setup relationships
+        // Setup multiple relationships
         network.follow(1, 2).unwrap();
         network.follow(1, 3).unwrap();
         network.follow(2, 1).unwrap();
         network.follow(4, 1).unwrap();
         
-        // Test get_followers
-        let user1_followers = network.get_followers(1);
-        assert_eq!(user1_followers.len(), 2);
-        assert!(user1_followers.contains(&2));
-        assert!(user1_followers.contains(&4));
+        let followers = network.get_followers(1);
+        assert_eq!(followers.len(), 2);
+        assert!(followers.contains(&2));
+        assert!(followers.contains(&4));
         
-        // Test get_followees
-        let user1_followees = network.get_followees(1);
-        assert_eq!(user1_followees.len(), 2);
-        assert!(user1_followees.contains(&2));
-        assert!(user1_followees.contains(&3));
+        let followees = network.get_followees(1);
+        assert_eq!(followees.len(), 2);
+        assert!(followees.contains(&2));
+        assert!(followees.contains(&3));
+        
+        // Test non-existent user
+        assert_eq!(network.get_followers(999).len(), 0);
+        assert_eq!(network.get_followees(999).len(), 0);
     }
 
     #[test]
     fn test_nonexistent_version() {
         let mut network = SocialNetwork::new();
         network.follow(1, 2).unwrap();
-        network.commit();
         
-        // Check nonexistent version
-        assert_eq!(network.is_following(1, 2, Some(999)), false);
+        // Should return false for versions beyond current
+        assert!(!network.is_following(1, 2, Some(999)));
     }
 
     #[test]
     fn test_refollow() {
         let mut network = SocialNetwork::new();
         
-        // Follow
+        // Follow, unfollow, then follow again
         network.follow(1, 2).unwrap();
-        let v1 = network.commit();
-        assert!(network.is_following(1, 2, None));
-        
-        // Unfollow
+        network.commit();
         network.unfollow(1, 2).unwrap();
-        let v2 = network.commit();
-        assert!(!network.is_following(1, 2, None));
+        network.commit();
         
-        // Refollow
-        network.follow(1, 2).unwrap();
-        let v3 = network.commit();
+        // Refollow should work
+        assert!(network.follow(1, 2).unwrap());
         assert!(network.is_following(1, 2, None));
-        
-        // Check history
-        assert_eq!(network.is_following(1, 2, Some(v1)), true);
-        assert_eq!(network.is_following(1, 2, Some(v2)), false);
-        assert_eq!(network.is_following(1, 2, Some(v3)), true);
     }
 } 

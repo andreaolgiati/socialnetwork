@@ -114,30 +114,6 @@ impl SocialNetworkService for SocialNetworkServer {
         }))
     }
 
-    async fn get_follower_count(
-        &self,
-        request: Request<GetFollowerCountRequest>,
-    ) -> Result<Response<GetFollowerCountResponse>, Status> {
-        let req = request.into_inner();
-        let network = self.network.lock().unwrap();
-        
-        let count = network.follower_count(req.user_id) as u32;
-        
-        Ok(Response::new(GetFollowerCountResponse { count }))
-    }
-
-    async fn get_followee_count(
-        &self,
-        request: Request<GetFolloweeCountRequest>,
-    ) -> Result<Response<GetFolloweeCountResponse>, Status> {
-        let req = request.into_inner();
-        let network = self.network.lock().unwrap();
-        
-        let count = network.followee_count(req.user_id) as u32;
-        
-        Ok(Response::new(GetFolloweeCountResponse { count }))
-    }
-
     async fn commit(
         &self,
         _request: Request<CommitRequest>,

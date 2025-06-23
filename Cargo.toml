@@ -29,7 +29,7 @@ path = "src/bin/client.rs"
 
 [lib]
 name = "socialnetwork"
-path = "src/lib.rs"
+path = "src/snlib.rs"
 
 # Clippy configuration
 [profile.dev]

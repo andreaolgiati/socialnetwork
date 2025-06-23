@@ -8,8 +8,6 @@ service SocialNetworkService {
   rpc IsFollowing (IsFollowingRequest) returns (IsFollowingResponse);
   rpc GetFollowers (GetFollowersRequest) returns (GetFollowersResponse);
   rpc GetFollowees (GetFolloweesRequest) returns (GetFolloweesResponse);
-  rpc GetFollowerCount (GetFollowerCountRequest) returns (GetFollowerCountResponse);
-  rpc GetFolloweeCount (GetFolloweeCountRequest) returns (GetFolloweeCountResponse);
   rpc Commit (CommitRequest) returns (CommitResponse);
   rpc GetCurrentVersion (GetCurrentVersionRequest) returns (GetCurrentVersionResponse);
 }
@@ -60,22 +58,6 @@ message GetFolloweesRequest {
 
 message GetFolloweesResponse {
   repeated uint64 followee_ids = 1;
-}
-
-message GetFollowerCountRequest {
-  uint64 user_id = 1;
-}
-
-message GetFollowerCountResponse {
-  uint32 count = 1;
-}
-
-message GetFolloweeCountRequest {
-  uint64 user_id = 1;
-}
-
-message GetFolloweeCountResponse {
-  uint32 count = 1;
 }
 
 message CommitRequest {}
